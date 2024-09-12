@@ -29,44 +29,9 @@ int is_exit_status_bad();
 #endif
 
   /* Start engine. */
-  //engine_start();
 
-
-word_t expr(char *e, bool *success);  // 在这里声明 expr 函数
-/*  FILE *file = fopen("input","r");
-if (!file) {
-        perror("Failed to open input file");
-        return 1;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), file)) {
-        // 去掉行末的换行符
-        line[strcspn(line, "\n")] = 0;
-
-        // 分割结果和表达式
-        char *expected_str = strtok(line, " ");
-        char *expr_str = strtok(NULL, "");
-
-        if (expected_str && expr_str) {
-            int expected_value = atoi(expected_str);
-            bool success;
-            word_t result = expr(expr_str, &success);
-
-            if (success) {
-                if (result == expected_value) {
-                    printf("Expression: %s = %d [Correct]\n", expr_str, result);
-                } else {
-                    printf("Expression: %s = %d [Incorrect, expected %d]\n", expr_str, result, expected_value);
-                }
-            } else {
-                printf("Expression: %s [Error in evaluation]\n", expr_str);
-            }
-        }
-    }
-    fclose(file);
-*/
   engine_start();
+
   return is_exit_status_bad();
 }
 

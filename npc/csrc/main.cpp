@@ -2,6 +2,11 @@
 #include <verilated_vcd_c.h>
 #include "Vcpu_tb.h"
 
+// ebreak code 
+void handle_ebreak(){ 
+	std::cout << "Ending simulation."<<std::endl;
+	simulation_end = true;  
+}   
 int main(int argc, char** argv) {
     // 构造环境对象，设计对象，波形对象
     VerilatedContext* m_contextp = new VerilatedContext; // 环境
@@ -14,7 +19,7 @@ int main(int argc, char** argv) {
     m_tracep->open("cpu_wf.vcd"); // 打开要存数据的vcd文件
 
     // 写入数据到波形文件里
-    while (!m_contextp->gotFinish()) {
+    while (!m_contextp->gotFinish()&& !simulation_end) {
         // 刷新电路状态
         m_duvp->eval();
         // dump数据

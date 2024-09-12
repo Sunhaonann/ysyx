@@ -86,10 +86,10 @@ static int cmd_x(char *args){
   unsigned num = 0;
 	vaddr_t begin;
 	sscanf(arg1,"%d",&num);
-	sscanf(arg2,"0x%x",&begin);
-	printf("%#08x:\n",begin);
+	sscanf(arg2,"0x%lx",&begin);
+	printf("%#08lx:\n",begin);
 	for (int i=0;i<num;++i){
-	  printf("\t0x%08x:%08x\n",begin,vaddr_read(begin,4));
+	  printf("\t0x%08lx:%08lx\n",begin,vaddr_read(begin,4));
     begin+=4;
 	}
 	return 0;

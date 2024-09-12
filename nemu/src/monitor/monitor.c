@@ -23,8 +23,6 @@ void init_difftest(char *ref_so_file, long img_size, int port);
 void init_device();
 void init_sdb();
 void init_disasm(const char *triple);
-void parse_elf(const char *elf_file);
-
 
 
 static void welcome() {
@@ -35,8 +33,7 @@ static void welcome() {
   Log("Build time: %s, %s", __TIME__, __DATE__);
   printf("Welcome to %s-NEMU!\n", ANSI_FMT(str(__GUEST_ISA__), ANSI_FG_YELLOW ANSI_BG_RED));
   printf("For help, type \"help\"\n");
-//Log("Exercise: Please remove me in the source code and compile NEMU again.");
-//  assert(0);////////////////////////////////////////////////nnnn
+//  assert(0);//////nn
 }
 
 #ifndef CONFIG_TARGET_AM
@@ -72,6 +69,7 @@ static long load_img() {
 }
 static char *elf_file = NULL;
 
+void parse_elf(const char *elf_file);
 static int parse_args(int argc, char *argv[]) {
   const struct option table[] = {
     {"batch"    , no_argument      , NULL, 'b'},
@@ -81,9 +79,9 @@ static int parse_args(int argc, char *argv[]) {
     {"help"     , no_argument      , NULL, 'h'},
 		{"elf"      , required_argument, NULL, 'e'},
     {0          , 0                , NULL,  0 },
-  };
+  }; 
   int o;
-  while ( (o = getopt_long(argc, argv, "-bhl:d:p:", table, NULL)) != -1) {
+  while ( (o = getopt_long(argc, argv, "-bhl:d:p:e:", table, NULL)) != -1) {
     switch (o) {
       case 'b': sdb_set_batch_mode(); break;
       case 'p': sscanf(optarg, "%d", &difftest_port); break;
@@ -100,16 +98,16 @@ static int parse_args(int argc, char *argv[]) {
 				printf("\t-e,--elf=FILE           parse the elf file\n");
         printf("\n");
         exit(0);
-    }
-  }
+     }
+  } 
   return 0;
 }
 
 void init_monitor(int argc, char *argv[]) {
   /* Perform some global initialization. */
-  parse_elf(elf_file);
   /* Parse arguments. */
   parse_args(argc, argv);
+  parse_elf(elf_file);
 
   /* Set random seed. */
   init_rand();

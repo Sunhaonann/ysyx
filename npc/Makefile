@@ -26,6 +26,7 @@ VFILES := $(wildcard $(V_SRC)/*.v)
 # 默认目标
 all: $(OUTPUT)
 
+
 # Verilator 生成的 Makefile
 $(OBJ_DIR)/V$(TOP_MODULE).mk: $(VFILES) $(SIM_DIR)/$(TOP_MODULE).v $(C_SRC)/main.cpp
 	$(VERILATOR) $(VERILATOR_FLAGS) -o $(OUTPUT) $(SIM_DIR)/$(TOP_MODULE).v $(VFILES) $(C_SRC)/main.cpp --Mdir $(OBJ_DIR) -top-module $(TOP_MODULE)
@@ -33,7 +34,9 @@ $(OBJ_DIR)/V$(TOP_MODULE).mk: $(VFILES) $(SIM_DIR)/$(TOP_MODULE).v $(C_SRC)/main
 # 构建仿真
 $(OUTPUT): $(OBJ_DIR)/V$(TOP_MODULE).mk
 	make -C $(OBJ_DIR) -f V$(TOP_MODULE).mk
-
+verilator:
+	@echo "Building with Verilator"
+	$(OBJ_DIR)/V$(TOP_MODULE).mk
 # 清理目标
 clean:
 	rm -rf $(OBJ_DIR) $(OUTPUT)

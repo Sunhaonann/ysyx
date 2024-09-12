@@ -9,7 +9,6 @@ module reg_file_n(
 );
 
 reg [31: 0] regs[31: 0];
-
 always @(posedge clk) begin
     if(write_reg && target_reg != 5'h0) regs[target_reg] <= write_rd_data;
 end

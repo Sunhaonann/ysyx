@@ -49,9 +49,16 @@ $(OBJ_DIR)/%.o: %.cc
 
 app: $(BINARY)
 
+ifdef CONFIG_ISA_npc
+$(BINARY):: $(OBJS) $(ARCHIVES) $(CVSRCS)
+	@$(MAKE) -C $(NPC_HOME) CVCFLAGS="$(CVCFLAGS)" verilator
+	@echo + LD $@
+	@$(LD) -o $@ $(OBJS) $(LDFLAGS) $(ARCHIVES) `find $(NSIM_HOME)/src/verilator/obj_dir -name "*.a"` $(LIBS)
+else
 $(BINARY):: $(OBJS) $(ARCHIVES)
 	@echo + LD $@
 	@$(LD) -o $@ $(OBJS) $(LDFLAGS) $(ARCHIVES) $(LIBS)
+endif
 
 clean:
 	-rm -rf $(BUILD_DIR)

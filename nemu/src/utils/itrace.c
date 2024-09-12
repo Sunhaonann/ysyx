@@ -2,7 +2,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <elf.h>
-
+#include <device/map.h> 
+#include <isa.h>
 #define MAX_IRINGBUF 16
 
 typedef struct {
@@ -21,21 +22,20 @@ void trace_inst(word_t pc, uint32_t inst) {
   full = full || p_cur == 0;
 }
 
+  void disassemble(char *str, int size, uint64_t pc, uint8_t *code, int nbyte);
 void display_inst() {
   if (!full && !p_cur) return;
-
   int end = p_cur;
   int i = full?p_cur:0;
 
-  void disassemble(char *str, int size, uint64_t pc, uint8_t *code, int nbyte);
   char buf[128]; // 128 should be enough!
   char *p;
-////////////////////////////////  Statement("Most recently executed instructions");
+   printf("Most recently executed instructions");
   do {
     p = buf;
     p += sprintf(buf, "%s" FMT_WORD ": %08x ", (i+1)%MAX_IRINGBUF==end?" --> ":"     ", iringbuf[i].pc, iringbuf[i].inst);
-    disassemble(p, buf+sizeof(buf)-p, iringbuf[i].pc, (uint8_t *)&iringbuf[i].inst, 4);
-
+ //   disassemble(p, buf+sizeof(buf)-p, iringbuf[i].pc, (uint8_t *)&iringbuf[i].inst, 4);
+    //close instr_tracer error Just comment
     if ((i+1)%MAX_IRINGBUF==end) printf(ANSI_FG_RED);
     puts(buf);
   } while ((i = (i+1)%MAX_IRINGBUF) != end);
@@ -49,446 +49,176 @@ void display_pread(paddr_t addr, int len) {
 void display_pwrite(paddr_t addr, int len, word_t data) {
   printf("pwrite at " FMT_PADDR " len=%d, data=" FMT_WORD "\n", addr, len, data);
 }
-
+  
+//ftrace
 typedef struct {
-	char name[32]; // func name, 32 should be enough
-	paddr_t addr;
-	unsigned char info;
-	Elf64_Xword size;
-} SymEntry;
-
-SymEntry *symbol_tbl = NULL; // dynamic allocated
-int symbol_tbl_size = 0;
-int call_depth = 0;
-
-typedef struct tail_rec_node {
-	paddr_t pc;
-	paddr_t depend;
-	struct tail_rec_node *next;
-} TailRecNode;
-TailRecNode *tail_rec_head = NULL; // linklist with head, dynamic allocated
-
-static void read_elf_header(int fd, Elf64_Ehdr *eh) {
-	assert(lseek(fd, 0, SEEK_SET) == 0);
-  assert(read(fd, (void *)eh, sizeof(Elf64_Ehdr)) == sizeof(Elf64_Ehdr));
-
-	  // check if is elf using fixed format of Magic: 7f 45 4c 46 ...
-  if(strncmp((char*)eh->e_ident, "\177ELF", 4)) {
-		panic("malformed ELF file");
-	}
-}
-
-static void display_elf_hedaer(Elf64_Ehdr eh) {
-	/* Storage capacity class */
-	log_write("Storage class\t= ");
-	switch(eh.e_ident[EI_CLASS])
-	{
-		case ELFCLASS32:
-			log_write("32-bit objects\n");
-			break;
-
-		case ELFCLASS64:
-			log_write("64-bit objects\n");
-			break;
-
-		default:
-			log_write("INVALID CLASS\n");
-			break;
-	}
-
-	/* Data Format */
-	log_write("Data format\t= ");
-	switch(eh.e_ident[EI_DATA])
-	{
-		case ELFDATA2LSB:
-			log_write("2's complement, little endian\n");
-			break;
-
-		case ELFDATA2MSB:
-			log_write("2's complement, big endian\n");
-			break;
-
-		default:
-			log_write("INVALID Format\n");
-			break;
-	}
-
-	/* OS ABI */
-	log_write("OS ABI\t\t= ");
-	switch(eh.e_ident[EI_OSABI])
-	{
-		case ELFOSABI_SYSV:
-			log_write("UNIX System V ABI\n");
-			break;
-
-		case ELFOSABI_HPUX:
-			log_write("HP-UX\n");
-			break;
-
-		case ELFOSABI_NETBSD:
-			log_write("NetBSD\n");
-			break;
-
-		case ELFOSABI_LINUX:
-			log_write("Linux\n");
-			break;
-
-		case ELFOSABI_SOLARIS:
-			log_write("Sun Solaris\n");
-			break;
-
-		case ELFOSABI_AIX:
-			log_write("IBM AIX\n");
-			break;
-
-		case ELFOSABI_IRIX:
-			log_write("SGI Irix\n");
-			break;
-
-		case ELFOSABI_FREEBSD:
-			log_write("FreeBSD\n");
-			break;
-
-		case ELFOSABI_TRU64:
-			log_write("Compaq TRU64 UNIX\n");
-			break;
-
-		case ELFOSABI_MODESTO:
-			log_write("Novell Modesto\n");
-			break;
-
-		case ELFOSABI_OPENBSD:
-			log_write("OpenBSD\n");
-			break;
-
-		case ELFOSABI_ARM_AEABI:
-			log_write("ARM EABI\n");
-			break;
-
-		case ELFOSABI_ARM:
-			log_write("ARM\n");
-			break;
-
-		case ELFOSABI_STANDALONE:
-			log_write("Standalone (embedded) app\n");
-			break;
-
-		default:
-			log_write("Unknown (0x%x)\n", eh.e_ident[EI_OSABI]);
-			break;
-	}
-
-	/* ELF filetype */
-	log_write("Filetype \t= ");
-	switch(eh.e_type)
-	{
-		case ET_NONE:
-			log_write("N/A (0x0)\n");
-			break;
-
-		case ET_REL:
-			log_write("Relocatable\n");
-			break;
-
-		case ET_EXEC:
-			log_write("Executable\n");
-			break;
-
-		case ET_DYN:
-			log_write("Shared Object\n");
-			break;
-		default:
-			log_write("Unknown (0x%x)\n", eh.e_type);
-			break;
-	}
-
-	/* ELF Machine-id */
-	log_write("Machine\t\t= ");
-	switch(eh.e_machine)
-	{
-		case EM_NONE:
-			log_write("None (0x0)\n");
-			break;
-
-		case EM_386:
-			log_write("INTEL x86 (0x%x)\n", EM_386);
-			break;
-
-		case EM_X86_64:
-			log_write("AMD x86_64 (0x%x)\n", EM_X86_64);
-			break;
-
-		case EM_AARCH64:
-			log_write("AARCH64 (0x%x)\n", EM_AARCH64);
-			break;
-
-		default:
-			log_write(" 0x%x\n", eh.e_machine);
-			break;
-	}
-
-	/* Entry point */
-	log_write("Entry point\t= 0x%08lx\n", eh.e_entry);
-
-	/* ELF header size in bytes */
-	log_write("ELF header size\t= 0x%08x\n", eh.e_ehsize);
-
-	/* Program Header */
-	log_write("Program Header\t= ");
-	log_write("0x%08lx\n", eh.e_phoff);		/* start */
-	log_write("\t\t  %d entries\n", eh.e_phnum);	/* num entry */
-	log_write("\t\t  %d bytes\n", eh.e_phentsize);	/* size/entry */
-
-	/* Section header starts at */
-	log_write("Section Header\t= ");
-	log_write("0x%08lx\n", eh.e_shoff);		/* start */
-	log_write("\t\t  %d entries\n", eh.e_shnum);	/* num entry */
-	log_write("\t\t  %d bytes\n", eh.e_shentsize);	/* size/entry */
-	log_write("\t\t  0x%08x (string table offset)\n", eh.e_shstrndx);
-
-	/* File flags (Machine specific)*/
-	log_write("File flags \t= 0x%08x\n", eh.e_flags);
-
-	/* ELF file flags are machine specific.
-	 * INTEL implements NO flags.
-	 * ARM implements a few.
-	 * Add support below to parse ELF file flags on ARM
-	 */
-	int32_t ef = eh.e_flags;
-	log_write("\t\t  ");
-
-	if(ef & EF_ARM_RELEXEC)
-		log_write(",RELEXEC ");
-
-	if(ef & EF_ARM_HASENTRY)
-		log_write(",HASENTRY ");
-
-	if(ef & EF_ARM_INTERWORK)
-		log_write(",INTERWORK ");
-
-	if(ef & EF_ARM_APCS_26)
-		log_write(",APCS_26 ");
-
-	if(ef & EF_ARM_APCS_FLOAT)
-		log_write(",APCS_FLOAT ");
-
-	if(ef & EF_ARM_PIC)
-		log_write(",PIC ");
-
-	if(ef & EF_ARM_ALIGN8)
-		log_write(",ALIGN8 ");
-
-	if(ef & EF_ARM_NEW_ABI)
-		log_write(",NEW_ABI ");
-
-	if(ef & EF_ARM_OLD_ABI)
-		log_write(",OLD_ABI ");
-
-	if(ef & EF_ARM_SOFT_FLOAT)
-		log_write(",SOFT_FLOAT ");
-
-	if(ef & EF_ARM_VFP_FLOAT)
-		log_write(",VFP_FLOAT ");
-
-	if(ef & EF_ARM_MAVERICK_FLOAT)
-		log_write(",MAVERICK_FLOAT ");
-
-	log_write("\n");
-
-	/* MSB of flags conatins ARM EABI version */
-	log_write("ARM EABI\t= Version %d\n", (ef & EF_ARM_EABIMASK)>>24);
-
-	log_write("\n");	/* End of ELF header */
-}
-
-static void read_section(int fd, Elf64_Shdr sh, void *dst) {
-	assert(dst != NULL);
-	assert(lseek(fd, (off_t)sh.sh_offset, SEEK_SET) == (off_t)sh.sh_offset);
-	assert(read(fd, dst, sh.sh_size) == sh.sh_size);
-}
-
-static void read_section_headers(int fd, Elf64_Ehdr eh, Elf64_Shdr *sh_tbl) {
-	assert(lseek(fd, eh.e_shoff, SEEK_SET) == eh.e_shoff);
-	for(int i = 0; i < eh.e_shnum; i++) {
-		assert(read(fd, (void *)&sh_tbl[i], eh.e_shentsize) == eh.e_shentsize);
-	}
-}
-
-static void display_section_headers(int fd, Elf64_Ehdr eh, Elf64_Shdr sh_tbl[]) {
-  // warn: C99
-	char sh_str[sh_tbl[eh.e_shstrndx].sh_size];
-  read_section(fd, sh_tbl[eh.e_shstrndx], sh_str);
-  
-	/* Read section-header string-table */
-
-	log_write("========================================");
-	log_write("========================================\n");
-	log_write(" idx offset     load-addr  size       algn"
-			" flags      type       section\n");
-	log_write("========================================");
-	log_write("========================================\n");
-
-	for(int i = 0; i < eh.e_shnum; i++) {
-		log_write(" %03d ", i);
-		log_write("0x%08lx ", sh_tbl[i].sh_offset);
-		log_write("0x%08lx ", sh_tbl[i].sh_addr);
-		log_write("0x%08lx ", sh_tbl[i].sh_size);
-		log_write("%-4ld ", sh_tbl[i].sh_addralign);
-		log_write("0x%08lx ", sh_tbl[i].sh_flags);
-		log_write("0x%08x ", sh_tbl[i].sh_type);
-		log_write("%s\t", (sh_str + sh_tbl[i].sh_name));
-		log_write("\n");
-	}
-	log_write("========================================");
-	log_write("========================================\n");
-	log_write("\n");	/* end of section header table */
-}
-
-static void read_symbol_table(int fd, Elf64_Ehdr eh, Elf64_Shdr sh_tbl[], int sym_idx) {
-  Elf64_Sym sym_tbl[sh_tbl[sym_idx].sh_size];
-  read_section(fd, sh_tbl[sym_idx], sym_tbl);
-  
-  int str_idx = sh_tbl[sym_idx].sh_link;
-  char str_tbl[sh_tbl[str_idx].sh_size];
-  read_section(fd, sh_tbl[str_idx], str_tbl);
-  
-  int sym_count = (sh_tbl[sym_idx].sh_size / sizeof(Elf64_Sym));
-	// log
-  log_write("Symbol count: %d\n", sym_count);
-  log_write("====================================================\n");
-  log_write(" num    value            type size       name\n");
-  log_write("====================================================\n");
-  for (int i = 0; i < sym_count; i++) {
-    log_write(" %-3d    %016lx %-4d %-10ld %s\n",
-      i,
-      sym_tbl[i].st_value, 
-      ELF64_ST_TYPE(sym_tbl[i].st_info),
-			sym_tbl[i].st_size,
-      str_tbl + sym_tbl[i].st_name
-    );
-  }
-  log_write("====================================================\n\n");
-
-	// read
-	symbol_tbl_size = sym_count;
-	symbol_tbl = malloc(sizeof(SymEntry) * sym_count);
-  for (int i = 0; i < sym_count; i++) {
-    symbol_tbl[i].addr = sym_tbl[i].st_value;
-		symbol_tbl[i].info = sym_tbl[i].st_info;
-		symbol_tbl[i].size = sym_tbl[i].st_size;
-		memset(symbol_tbl[i].name, 0, 32);
-		strncpy(symbol_tbl[i].name, str_tbl + sym_tbl[i].st_name, 31);
-  }
-}
-
-static void read_symbols(int fd, Elf64_Ehdr eh, Elf64_Shdr sh_tbl[]) {
-  for (int i = 0; i < eh.e_shnum; i++) {
-		switch (sh_tbl[i].sh_type) {
-		case SHT_SYMTAB: case SHT_DYNSYM:
-			read_symbol_table(fd, eh, sh_tbl, i); break;
-		}
-  }
-}
-
-static void init_tail_rec_list() {
-	tail_rec_head = (TailRecNode *)malloc(sizeof(TailRecNode));
-	tail_rec_head->pc = 0;
-	tail_rec_head->next = NULL;
-}
-
-/* ELF64 as default */
-void parse_elf(const char *elf_file) {
-  if (elf_file == NULL) return;
-  
-	Log("specified ELF file: %s", elf_file);
-  int fd = open(elf_file, O_RDONLY|O_SYNC);
-  Assert(fd >= 0, "Error %d: unable to open %s\n", fd, elf_file);
-  
-  Elf64_Ehdr eh;
-	read_elf_header(fd, &eh);
-  display_elf_hedaer(eh);
-
-  Elf64_Shdr sh_tbl[eh.e_shentsize * eh.e_shnum];
-	read_section_headers(fd, eh, sh_tbl);
-  display_section_headers(fd, eh, sh_tbl);
-
-  read_symbols(fd, eh, sh_tbl);
-
-	init_tail_rec_list();
-
-	close(fd);
-}
-
-static int find_symbol_func(paddr_t target, bool is_call) {
-	int i;
-	for (i = 0; i < symbol_tbl_size; i++) {
-		if (ELF64_ST_TYPE(symbol_tbl[i].info) == STT_FUNC) {
-			if (is_call) {
-				if (symbol_tbl[i].addr == target) break;
-			} else {
-				if (symbol_tbl[i].addr <= target && target < symbol_tbl[i].addr + symbol_tbl[i].size) break;
-			}
-		}
-	}
-	return i<symbol_tbl_size?i:-1;
-}
-
-static void insert_tail_rec(paddr_t pc, paddr_t depend) {
-	TailRecNode *node = (TailRecNode *)malloc(sizeof(TailRecNode));
-	node->pc = pc;
-	node->depend = depend;
-	node->next = tail_rec_head->next;
-	tail_rec_head->next = node;
-}
-
-static void remove_tail_rec() {
-	TailRecNode *node = tail_rec_head->next;
-	tail_rec_head->next = node->next;
-	free(node);
-}
-
-void trace_func_call(paddr_t pc, paddr_t target, bool is_tail) {
-	if (symbol_tbl == NULL) return;
-
-	++call_depth;
-
-	if (call_depth <= 2) return; // ignore _trm_init & main
-
-	int i = find_symbol_func(target, true);
-	log_write(FMT_PADDR ": %*scall [%s@" FMT_PADDR "]\n",
-		pc,
-		(call_depth-3)*2, "",
-		i>=0?symbol_tbl[i].name:"???",
-		target
-	);
-
-	if (is_tail) {
-		insert_tail_rec(pc, target);
-	}
-}
-
-void trace_func_ret(paddr_t pc) {
-	if (symbol_tbl == NULL) return;
+    char name[64];
+    paddr_t addr;      //the function head address
+    Elf32_Xword size;
+} Symbol;
+
+Symbol *symbol = NULL;  //dynamic allocate memory  or direct allocate memory (Symbol symbol[NUM])
+int func_num = 0;
+
+void parse_elf(const char *elf_file)
+{
+    
+    if(elf_file == NULL) return;
+    
+    FILE *fp;
+    fp = fopen(elf_file, "rb");
+    
+    if(fp == NULL)
+    {
+        printf("failed to open the elf file!\n");
+        exit(0);
+    }
 	
-	if (call_depth <= 2) return; // ignore _trm_init & main
+    Elf32_Ehdr edhr;
+	//读取elf头
+    if(fread(&edhr, sizeof(Elf32_Ehdr), 1, fp) <= 0)
+    {
+        printf("fail to read the elf_head!\n");
+        exit(0);
+    }
 
-	int i = find_symbol_func(pc, false);
-	log_write(FMT_PADDR ": %*sret [%s]\n",
-		pc,
-		(call_depth-3)*2, "",
-		i>=0?symbol_tbl[i].name:"???"
-	);
-	
-	--call_depth;
+    if(edhr.e_ident[0] != 0x7f || edhr.e_ident[1] != 'E' || 
+       edhr.e_ident[2] != 'L' ||edhr.e_ident[3] != 'F')
+    {
+        printf("The opened file isn't a elf file!\n");
+        exit(0);
+    }
+    
+    fseek(fp, edhr.e_shoff, SEEK_SET);
 
-	TailRecNode *node = tail_rec_head->next;
-	if (node != NULL) {
-		int depend_i = find_symbol_func(node->depend, true);
-		if (depend_i == i) {
-			paddr_t ret_target = node->pc;
-			remove_tail_rec();
-			trace_func_ret(ret_target);
-		}
-	}
+    Elf32_Shdr shdr;
+    char *string_table = NULL;
+    //寻找字符串表
+    for(int i = 0; i < edhr.e_shnum; i++)
+    {
+        if(fread(&shdr, sizeof(Elf32_Shdr), 1, fp) <= 0)
+        {
+            printf("fail to read the shdr\n");
+            exit(0);
+        }
+        
+        if(shdr.sh_type == SHT_STRTAB)
+        {
+            //获取字符串表
+            string_table = malloc(shdr.sh_size);
+						 if (string_table == NULL){
+		         printf("fail to allocate memory for the strtab\n");
+		         exit(0);
+						        }
+            fseek(fp, shdr.sh_offset, SEEK_SET);
+            if(fread(string_table, shdr.sh_size, 1, fp) <= 0)
+            {
+                printf("fail to read the strtab\n");
+                exit(0);
+            }
+        }
+    }
+    
+    //寻找符号表
+    fseek(fp, edhr.e_shoff, SEEK_SET);
+    
+    for(int i = 0; i < edhr.e_shnum; i++)
+    {
+        if(fread(&shdr, sizeof(Elf32_Shdr), 1, fp) <= 0)
+        {
+            printf("fail to read the shdr\n");
+            exit(0);
+        }
+
+        if(shdr.sh_type == SHT_SYMTAB)
+        {
+            fseek(fp, shdr.sh_offset, SEEK_SET);
+
+            Elf32_Sym sym;
+
+            size_t sym_count = shdr.sh_size / shdr.sh_entsize;
+            symbol = malloc(sizeof(Symbol) * sym_count);
+            if (symbol == NULL)
+	             {
+	          printf("fail to allocate memory for symbols\n");
+					  exit(0);
+			         }
+            for(size_t j = 0; j < sym_count; j++)
+            {
+                if(fread(&sym, sizeof(Elf32_Sym), 1, fp) <= 0)
+                {
+                    printf("fail to read the symtab\n");
+                    exit(0);
+                }
+
+                if(ELF32_ST_TYPE(sym.st_info) == STT_FUNC)
+                {
+                    const char *name = string_table + sym.st_name;
+                    strncpy(symbol[func_num].name, name, sizeof(symbol[func_num].name) - 1);
+						  			 symbol[func_num].name[sizeof(symbol[func_num].name) - 1] = '\0'; // Ensure null-termination
+                    symbol[func_num].addr = sym.st_value;
+                    symbol[func_num].size = sym.st_size;
+								 //	printf("Parsed symbol: %s at 0x%08x with size %lu\n", symbol[func_num].name, symbol[func_num].addr, symbol[func_num].size);
+                    func_num++;
+                }
+            }
+        }
+    }
+    fclose(fp);
+    free(string_table);
+}
+
+int rec_depth = 1;
+void display_call_func(word_t pc, word_t func_addr)
+{
+    int i = 0;
+    for(; i < func_num; i++)
+    {
+        if(func_addr >= symbol[i].addr && func_addr < (symbol[i].addr + symbol[i].size))
+        {
+            break;
+        }
+    }
+    printf("0x%08x:", pc);
+
+    for(int k = 0; k < rec_depth; k++) printf("  ");
+
+    rec_depth++;
+    if(i < func_num){
+    printf("call  [%s@0x%08x]\n", symbol[i].name, func_addr);
+    }
+		else{printf("call [unknown@0x%08x]\n",func_addr);}
+}
+
+void display_ret_func(word_t pc)
+{
+    int i = 0;
+    for(; i < func_num; i++)
+    {
+        if(pc >= symbol[i].addr && pc < (symbol[i].addr + symbol[i].size))
+        {
+            break;
+        }
+    }
+    printf("0x%08x:", pc);
+
+    rec_depth--;
+
+    for(int k = 0; k < rec_depth; k++) printf("  ");
+ if (i < func_num){
+    printf("ret  [%s]\n", symbol[i].name);
+}
+else {printf("ret  [unknown]\n");}
+}
+
+//        ***end**
+void trace_dread(void *addr, int len, IOMap *map) {
+		 printf("dtrace: Drive Name = %s : read address = %p at pc = "FMT_WORD" with byte = %d\n",
+		map->name, addr, cpu.pc,len);
+}
+
+void trace_dwrite(void* addr, int len, word_t data, IOMap *map) {
+		printf("dtrace: Drive Name = %s : write address = %p at pc = "FMT_WORD" with byte = %d and data = "FMT_WORD" \n",
+	  map->name, addr,cpu.pc, len, data);
 }
 

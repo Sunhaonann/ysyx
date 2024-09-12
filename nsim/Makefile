@@ -53,7 +53,7 @@ LDFLAGS += $(CFLAGS_BUILD)
 include $(NSIM_HOME)/scripts/config.mk
 
 ifdef CONFIG_ISA_npc
-	include $(NSIM_HOME)/src/verilator/verilator.mk 
+include $(NSIM_HOME)/src/verilator/verilator.mk 
 endif 
 
 ifdef CONFIG_TARGET_AM

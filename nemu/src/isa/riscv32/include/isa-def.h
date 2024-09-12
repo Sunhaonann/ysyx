@@ -18,9 +18,9 @@
 
 #include <common.h>
 //nn
-#ifdef CONFIG_ISA_npc
-#define CONFIG_ISA_RISCV64
-#endif
+//#ifdef CONFIG_ISA_npc
+//#define CONFIG_ISA_RISCV64
+//#endif
 
 typedef struct {
   word_t gpr[MUXDEF(CONFIG_RVE, 16, 32)];

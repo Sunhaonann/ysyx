@@ -14,6 +14,8 @@ module controller_n(
     output reg [1: 0] pcImm_NEXTPC_rs1Imm
 );
 wire [6 :0] unused_bits = func7;// kill warning
+
+
 always @(*) begin
     case (opcode)
         // lui

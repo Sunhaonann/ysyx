@@ -4,7 +4,6 @@
 #include <stdarg.h>
 
 #if !defined(__ISA_NATIVE__) || defined(__NATIVE_USE_KLIB__)
-
 void itoa(int n, char *str) {
     int i = 0, sign = n;
     if (sign < 0) n = -n;
@@ -27,11 +26,12 @@ void itoa(int n, char *str) {
 }
 
 int printf(const char *fmt, ...) {
-  va_list args;
-  va_start (args, fmt);
+    va_list args;
+    va_start(args, fmt);
 
+    int count = 0; // To keep track of the number of characters printed
     const char *p;
-    int count = 0;
+
     for (p = fmt; *p != '\0'; p++) {
         if (*p != '%') {
             putch(*p);
@@ -39,19 +39,33 @@ int printf(const char *fmt, ...) {
             continue;
         }
 
-        p++; // 跳过 '%'
-        switch (*p) {
+        p++; // Move past the '%'
+
+        switch (* p) {
             case 'd': {
                 int i = va_arg(args, int);
-                count += printf("%d", i);//he li ?
+                char buffer[50];
+                snprintf(buffer, sizeof(buffer), "%d", i);
+                for (char *buf_p = buffer; *buf_p != '\0'; buf_p++) {
+                    putch(*buf_p);
+                    count++;
+                }  
                 break;
             }
-            case 's': {
+            case 's': { 
                 char *s = va_arg(args, char *);
-                count += printf("%s", s);
+                for (; * s != '\0'; s++) {
+                    putch(*s);
+                    count++;
+                }
+                break;
+            } 
+            case '%': { 
+                putch('%');
+                count++;
                 break;
             }
-            default: {
+            default:  {
                 putch('%');
                 putch(*p);
                 count += 2;
@@ -59,7 +73,8 @@ int printf(const char *fmt, ...) {
             }
         }
     }
-    va_end(args);
+	
+	  va_end(args);
     return count;
 }
 int vsprintf(char *out, const char *fmt, va_list ap) {

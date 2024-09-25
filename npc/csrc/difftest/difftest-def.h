@@ -13,27 +13,21 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 
-#include <common.h>
+#ifndef __DIFFTEST_DEF_H__
+#define __DIFFTEST_DEF_H__
 
-void init_monitor(int, char *[]);
-void am_init_monitor();
-void engine_start();
-int is_exit_status_bad();
+#include <stdint.h>
+#include "../common.h"
 
- int main(int argc, char *argv[]) {
-  /* Initialize the monitor. */
-#ifdef CONFIG_TARGET_AM
-  am_init_monitor();
-#else
-  init_monitor(argc, argv);
+#define __EXPORT __attribute__((visibility("default")))
+enum { DIFFTEST_TO_DUT, DIFFTEST_TO_REF };
+
+#define RISCV_GPR_TYPE MUXDEF(CONFIG_RV64, uint64_t, uint32_t)
+#define RISCV_GPR_NUM  MUXDEF(CONFIG_RVE , 16, 32)
+#define DIFFTEST_REG_SIZE (sizeof(RISCV_GPR_TYPE) * (RISCV_GPR_NUM + 1)) // GPRs + pc
+
+void init_difftest(const char *ref_so_file, long img_size, int port);
+void difftest_step(vaddr_t pc, vaddr_t npc);
+void difftest_skip_ref();
+
 #endif
-
-  /* Start engine. */
-  //engine_start();
-
-
-word_t expr(char *e, bool *success);  // 在这里声明 expr 函数
-  engine_start();
-  return is_exit_status_bad();
-}
-
